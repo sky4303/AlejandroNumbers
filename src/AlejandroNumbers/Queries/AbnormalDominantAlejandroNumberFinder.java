@@ -4,9 +4,12 @@ import AlejandroNumbers.Filters.ComparisonStrategyFilters.ComparisonStrategy;
 import AlejandroNumbers.Filters.ExtraFilters.BigIntFilter;
 import AlejandroNumbers.Visualizers.AlejandroNumberGrapher;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class AbnormalDominantAlejandroNumberFinder {
     public static final int DEFAULT_ABNORMALITY_THRESHOLD = 1;
@@ -16,6 +19,9 @@ public class AbnormalDominantAlejandroNumberFinder {
     private final BigInteger startedWithSeed;
     private final BigIntFilter filter;
     private final BigInteger filterParam;
+    private final int timeoutallowedInMillis;
+    private final boolean accountForSeedLenght;
+    private final boolean log;
     private int foundResults = 0;
     private int abnormalityIndicator;
     private BigInteger seed;
@@ -23,31 +29,55 @@ public class AbnormalDominantAlejandroNumberFinder {
     private List<Integer> associatedAbnormalities = new ArrayList<>();
     private List<BigInteger> alejandroNumberSeeds = new ArrayList<>();
     private final boolean allowTimeJumps;
+    private Timer timer = new Timer();
+    private double timeJumpMultiplicator;
 
-    public AbnormalDominantAlejandroNumberFinder(int abnormalityIndicator, BigInteger startseed, int maxIterations, ComparisonStrategy comparisonStrategy, int maxResults, boolean indefinite, BigIntFilter filter, BigInteger filterParam, boolean allowTimeJumps) {
-        this.abnormalityIndicator = abnormalityIndicator;
-        this.seed = startseed;
-        this.startedWithSeed = startseed;
-        this.maxIterations = maxIterations;
-        this.comparisonStrategy = comparisonStrategy;
-        this.maxresults = maxResults;
-        this.indefinite = indefinite;
-        this.filter = filter;
-        this.filterParam = filterParam;
-        this.allowTimeJumps = allowTimeJumps;
+    public AbnormalDominantAlejandroNumberFinder(AbnormalAlejandroNumberFinderParams abnormalAlejandroNumberFinderParams) {
+        this.abnormalityIndicator = abnormalAlejandroNumberFinderParams.getAbnormalityIndicator();
+        this.seed = abnormalAlejandroNumberFinderParams.getSeed();
+        this.startedWithSeed = abnormalAlejandroNumberFinderParams.getStartedWithSeed();
+        this.maxIterations = abnormalAlejandroNumberFinderParams.getMaxIterations();
+        this.comparisonStrategy = abnormalAlejandroNumberFinderParams.getComparisonStrategy();
+        this.maxresults = abnormalAlejandroNumberFinderParams.getMaxresults();
+        this.indefinite = abnormalAlejandroNumberFinderParams.isIndefinite();
+        this.filter = abnormalAlejandroNumberFinderParams.getFilter();
+        this.filterParam = abnormalAlejandroNumberFinderParams.getFilterParam();
+        this.allowTimeJumps = abnormalAlejandroNumberFinderParams.isAllowTimeJumps();
+        this.timeoutallowedInMillis = abnormalAlejandroNumberFinderParams.getTimeoutallowedInMillis();
+        this.timeJumpMultiplicator = abnormalAlejandroNumberFinderParams.getTimeJumpMultiplicator();
+        this.accountForSeedLenght = abnormalAlejandroNumberFinderParams.isAccountForSeedLenght();
+        this.log = abnormalAlejandroNumberFinderParams.isLog();
+    }
+
+    public void setSeed(BigInteger seed) {
+        this.seed = seed;
+    }
+
+    public void setTimeJumpMultiplicator(double timeJumpMultiplicator) {
+        this.timeJumpMultiplicator = timeJumpMultiplicator;
+    }
+
+    public int getFoundResults() {
+        return foundResults;
+    }
+
+    public void stop() {
+        this.continueSearching = false;
     }
 
     boolean continueSearching = true;
 
     public void startAbnormalSearch() {
+        continueSearching = true;
         while (continueSearching || indefinite) {
             DominantAlejandroNumberFinder.getDominantFromSeed(seed, maxIterations, (dominantIntInArray, atSeed) -> {
-                if (comparisonStrategy.compare(dominantIntInArray, abnormalityIndicator)){
+                if (comparisonStrategy.compare(dominantIntInArray, abnormalityIndicator)) {
+                    timer.cancel();
                     startTooLongTimer();
                     if (filter.shouldAllowThroughFilter(atSeed, filterParam)) {
 
-                        System.out.println(foundResults + ": " + "Dominance of " + dominantIntInArray + " found at seed "
-                                + atSeed + " with " + maxIterations + " iterations");
+                        if (log)
+                            System.out.println(foundResults + ": " + "Dominance of " + dominantIntInArray + " found at seed " + atSeed + " with " + maxIterations + " iterations");
                         associatedAbnormalities.add(dominantIntInArray);
                         alejandroNumberSeeds.add(atSeed);
                         foundResults++;
@@ -67,7 +97,22 @@ public class AbnormalDominantAlejandroNumberFinder {
     }
 
     private void startTooLongTimer() {
-        //If it takes too long, we will artificially add to the seed and start from there, the steps will always get bigger:
+        timer = new Timer();
+        timer.schedule(new RemindTask(), timeoutallowedInMillis);
+    }
 
+
+    int timeJumps = 1;
+
+    class RemindTask extends TimerTask {
+        public void run() {
+            timeJumps++;
+            Double currentJumpFactor = Math.pow(timeJumps, timeJumpMultiplicator);
+            BigDecimal multipliedResultSeed = new BigDecimal(seed).multiply(new BigDecimal(String.valueOf(currentJumpFactor)));
+            seed = multipliedResultSeed.toBigInteger();
+            if (log) System.out.println("Jumped by Factor " + currentJumpFactor.toString() + " now at seed " + seed);
+            timer.cancel(); //Terminate the timer thread
+            startTooLongTimer();
+        }
     }
 }
